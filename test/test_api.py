@@ -115,7 +115,7 @@ def test_export_rules_writes_rule_files(tmp_path):
     proj = _make_project(tmp_path)
     r = api.export_rules(proj)
     assert r["success"] is True
-    rule_dir = os.path.join(proj, ".jarvis", "rules", "reversa")
+    rule_dir = os.path.join(proj, ".jarvis", "rules", "reversa", "artifacts")
     assert os.path.isdir(rule_dir)
     # architecture.md -> architecture.md（文件名 = 产物名，front matter name 带 reversa_ 前缀）
     rule_file = os.path.join(rule_dir, "architecture.md")
@@ -138,11 +138,11 @@ def test_get_skills(tmp_path):
 
 
 def test_convert_skills(tmp_path):
-    """convert_skills 把 SKILL.md 转为 rule 并写入 .jarvis/rules/reversa/。"""
+    """convert_skills 把 SKILL.md 转为 rule 并写入 .jarvis/rules/reversa/skills/。"""
     proj = _make_project(tmp_path)
     r = api.convert_skills(proj)
     assert r["success"] is True
     assert r["data"]["total"] == 1
     assert r["data"]["failed"] == []
-    rule_file = os.path.join(proj, ".jarvis", "rules", "reversa", "reversa.md")
+    rule_file = os.path.join(proj, ".jarvis", "rules", "reversa", "skills", "reversa.md")
     assert os.path.isfile(rule_file)

@@ -49,8 +49,9 @@ def _load_converter():
 
 # 默认输出目录（与 Reversa 默认一致）
 _DEFAULT_OUTPUT_FOLDER = "_reversa_sdd"
-# 导出规则的目标目录（项目内）
-_EXPORT_RULES_DIR = os.path.join(".jarvis", "rules", "reversa")
+# 导出规则的目标目录（项目内）：SKILL 转换与产物导出分目录隔离，避免混放/覆盖
+_EXPORT_RULES_DIR = os.path.join(".jarvis", "rules", "reversa", "artifacts")
+_SKILL_RULES_DIR = os.path.join(".jarvis", "rules", "reversa", "skills")
 # 置信度标记
 _CONFIDENCE_CONFIRMED = "🟢CONFIRMED"
 _CONFIDENCE_INFERRED = "🟡INFERRED"
@@ -336,7 +337,7 @@ def convert_skills(
     """把项目已安装的 Reversa skills（.agents/skills/）转换为 Jarvis rule。
 
     决策 6：front matter 翻译中文、正文保留原文；未知字段容错。
-    默认写入 <project_dir>/.jarvis/rules/reversa/。
+    默认写入 <project_dir>/.jarvis/rules/reversa/skills/（与产物导出 artifacts/ 分目录隔离）。
 
     返回 {"success": True, "data": {converted: [...], failed: [...], total, rule_dir}}。
     """
@@ -345,7 +346,7 @@ def convert_skills(
         return {"success": False, "error": err}
     converter = _load_converter()
     if output_dir is None:
-        output_dir = os.path.join(project_dir, ".jarvis", "rules", "reversa")
+        output_dir = os.path.join(project_dir, _SKILL_RULES_DIR)
     result = converter.convert_installed_skills(project_dir, output_dir=output_dir, source=source)
     return {
         "success": True,
@@ -388,7 +389,7 @@ def _export_one_rule(
 ) -> Dict[str, Any]:
     """把单个产物导出为 Jarvis rule 文件。
 
-    写入 <project>/.jarvis/rules/reversa/<name>.md，带 front matter：
+    写入 <project>/.jarvis/rules/reversa/artifacts/<name>.md，带 front matter：
     name/description + metadata（source/confidence/exported_at）。
     覆盖式更新（决策 7：每文件一 rule + 覆盖式更新 + metadata 溯源）。
     """

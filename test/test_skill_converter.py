@@ -115,14 +115,14 @@ def test_missing_skills_dir_returns_empty(tmp_path):
 
 
 def test_convert_installed_skills_default_output(tmp_path):
-    """convert_installed_skills 默认输出到 <project>/.jarvis/rules/reversa/。"""
+    """convert_installed_skills 默认输出到 <project>/.jarvis/rules/reversa/skills/。"""
     project = tmp_path / "proj"
     skills_dir = project / ".agents" / "skills"
     _write_skill(str(skills_dir), "reversa", CORE_SKILL)
     result = convert_installed_skills(str(project))
     assert result["success"] is True
     assert result["total"] == 1
-    out = project / ".jarvis" / "rules" / "reversa" / "reversa.md"
+    out = project / ".jarvis" / "rules" / "reversa" / "skills" / "reversa.md"
     assert out.is_file()
 
 
