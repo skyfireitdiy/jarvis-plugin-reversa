@@ -503,12 +503,12 @@ def convert_installed_skills(
 
     参数:
         project_dir: 已安装 Reversa 的项目目录
-        output_dir: 输出目录；默认 <project_dir>/.jarvis/rules/reversa/
+        output_dir: 输出目录；默认 <project_dir>/.jarvis/rules/reversa/skills/
         source: 溯源标记
 
     返回 {"success": True, "converted": [...], "failed": [...], "total": int}。
     """
     skills_dir = os.path.join(project_dir, ".agents", "skills")
     if output_dir is None:
-        output_dir = os.path.join(project_dir, ".jarvis", "rules", "reversa")
+        output_dir = os.path.join(project_dir, ".jarvis", "rules", "reversa", "skills")
     return convert_skills_dir(skills_dir, output_dir, source=source)
