@@ -1,0 +1,42 @@
+---
+# Reversa 逆向工程插件：复用 Jarvis 模型对遗留项目做规格逆向工程，
+# 生成结构化 Markdown 规格（_reversa_sdd/），并导出为 Jarvis rule 知识库。
+# 设计见 issue #328（https://github.com/skyfireitdiy/Jarvis/issues/328）。
+id: reversa
+name: Reversa 逆向工程
+description: >-
+  Reversa 逆向工程框架包装器——复用 Jarvis 模型对遗留项目执行规格
+  逆向工程，生成可执行规格（_reversa_sdd/）并导出为 rule 知识库。
+version: 0.1.0
+license: MIT
+logo: frontend/icon.svg
+# --- 扩展点 ---
+# 转换后的 Reversa skills（SKILL.md → Jarvis rule），供 Jarvis Agent 加载执行
+rules_load_dirs:
+  - "{{plugin_dir}}/rules"
+# Agent 工具（薄封装，调用 plugin/ 私有功能）
+tool_load_dirs:
+  - "{{plugin_dir}}/tools"
+# --- 前端扩展：单一侧边栏视图（不做管理面板，普通用户可用）---
+frontend:
+  sidebar_views:
+    - id: reversa
+      title: "Reversa 逆向工程"
+      entry: sidebar_view.js
+      icon: frontend/icon.svg
+# --- 依赖声明 ---
+dependencies:
+  commands:
+    - node
+    - npm
+# --- 自定义能力清单（前端展示用）---
+capabilities:
+  - name: "规格逆向工程"
+    description: >-
+      对遗留项目执行 Reversa 5 阶段逆向工程，生成结构化 Markdown 规格
+  - name: "Rule 知识库导出"
+    description: >-
+      将 _reversa_sdd/ 产物按置信度导出为 Jarvis rule，供后续任务复用
+  - name: "生命周期管理"
+    description: >-
+      安装/状态/更新/卸载 Reversa 工作区（绕过交互式 CLI 直连 installer 库）
