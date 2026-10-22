@@ -11,7 +11,9 @@ version: 0.1.0
 license: MIT
 logo: frontend/icon.svg
 # --- 扩展点 ---
-# 转换后的 Reversa skills（SKILL.md → Jarvis rule），供 Jarvis Agent 加载执行
+# （已废弃）转换后的 Reversa skills（SKILL.md → Jarvis rule）：
+# Jarvis 已默认扫描项目 .agents/skills 与 .claude/skills，SKILL.md 可直接加载，
+# 无需再转换导出到 rules/。保留仅为向后兼容。
 rules_load_dirs:
   - "{{plugin_dir}}/rules"
 # Agent 工具（薄封装，调用 plugin/ 私有功能）

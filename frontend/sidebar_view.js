@@ -452,26 +452,11 @@ export default {
       }
     },
     async doConvertSkills() {
-      if (!this.projectDir) {
-        this.error = "请先选择项目目录";
-        return;
-      }
-      this.convertBusy = true;
+      // convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载。
+      // 保留按钮仅为向后兼容，点击时提示用户无需转换。
       this.error = "";
-      this.message = "";
-      try {
-        const payload = await callFunction(
-          "convert_skills",
-          { project_dir: this.projectDir },
-          this.nodeId,
-        );
-        const d = payload.data || {};
-        this.message = `转换 ${d.total || 0} 个 SKILL.md 为 rule（失败 ${(d.failed || []).length}）`;
-      } catch (e) {
-        this.error = e.message || "转换失败";
-      } finally {
-        this.convertBusy = false;
-      }
+      this.message = "convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills 与 .claude/skills，SKILL.md 可直接加载，无需转换。";
+      return;
     },
   },
   template: `
@@ -544,9 +529,9 @@ export default {
           style="padding:5px 12px;background:#da3633;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">
           {{ busy ? '卸载中…' : '卸载' }}
         </button>
-        <button @click="doConvertSkills" :disabled="convertBusy || !installed"
-          style="padding:5px 12px;background:#8957e5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">
-          {{ convertBusy ? '转换中…' : 'SKILL→Rule' }}
+        <button @click="doConvertSkills" :disabled="convertBusy || !installed" title="已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载"
+          style="padding:5px 12px;background:#8957e5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;opacity:.6;">
+          {{ convertBusy ? '转换中…' : 'SKILL→Rule（已废弃）' }}
         </button>
         <button @click="doExportRules" :disabled="exportBusy || !installed"
           style="padding:5px 12px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">

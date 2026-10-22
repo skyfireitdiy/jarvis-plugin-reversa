@@ -138,11 +138,14 @@ def test_get_skills(tmp_path):
 
 
 def test_convert_skills(tmp_path):
-    """convert_skills 把 SKILL.md 转为 rule 并写入 .jarvis/rules/reversa/skills/。"""
+    """convert_skills 已废弃但仍可用：转换 SKILL.md 并返回 deprecated 标记。"""
     proj = _make_project(tmp_path)
     r = api.convert_skills(proj)
     assert r["success"] is True
     assert r["data"]["total"] == 1
     assert r["data"]["failed"] == []
+    # 已废弃标记：Jarvis 已默认扫描 .agents/skills，无需转换
+    assert r["data"]["deprecated"] is True
+    assert "已废弃" in r["data"]["warning"]
     rule_file = os.path.join(proj, ".jarvis", "rules", "reversa", "skills", "reversa.md")
     assert os.path.isfile(rule_file)

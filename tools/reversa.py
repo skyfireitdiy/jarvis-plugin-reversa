@@ -73,9 +73,10 @@ class ReversaTool:
     name = "reversa"
     description = (
         "Reversa 逆向工程：对遗留项目执行规格逆向工程并导出为 Jarvis rule 知识库。"
-        "可安装 Reversa 工作区（install）、查看分析进度（status）、列出/转换已安装的 "
-        "Reversa skills 为 rule（skills/convert_skills）、浏览规格产物（artifacts/"
+        "可安装 Reversa 工作区（install）、查看分析进度（status）、列出已安装的 "
+        "Reversa skills（skills）、浏览规格产物（artifacts/"
         "read_artifact）、把产物按置信度导出为 rule（export_rules）、卸载工作区（uninstall）。"
+        "（convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载，无需转换。）"
         "适合用户要求「逆向分析某项目」「生成项目规格」「把 Reversa 产物转成 rule」等场景。"
         "注意：本工具只做生命周期管理与产物转换，不直接执行 5 阶段分析——分析由 Jarvis "
         "Agent 依据转换后的 rules 编排执行。"
