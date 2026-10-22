@@ -8,7 +8,7 @@ Reversa 插件私有功能层（运行在 gateway，供前端代理调用；不�
 - read_artifact：读取单个产物文件内容
 - export_rules：把产物按置信度导出为 Jarvis rule（写入项目 .jarvis/rules/reversa/）
 - uninstall_project：卸载 Reversa 工作区（保留 _reversa_sdd/ 产物）
-- get_skills：列出已安装的 Reversa skills（供 SKILL.md → rule 转换）
+- get_skills：列出已安装的 Reversa skills（供 Agent 加载执行）
 
 设计（issue #328 讨论定稿）：
 - 后端无状态：本模块是纯函数，不存配置、不维护会话；设置纯前端 localStorage。
@@ -33,25 +33,12 @@ from typing import Optional
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _BRIDGE_PATH = os.path.join(_THIS_DIR, "reversa_bridge.mjs")
 
-# 延迟导入 skill_converter（避免循环依赖/加载失败影响 api 主流程）。
-# api.py 由 gateway 按路径 importlib 加载（模块名 plugin_api_<name>），
-# 插件目录不在 sys.path，故 skill_converter 也按文件路径加载。
-def _load_converter():
-    import importlib.util
-    import sys
-
-    skill_path = os.path.join(_THIS_DIR, "skill_converter.py")
-    spec = importlib.util.spec_from_file_location("reversa_skill_converter", skill_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["reversa_skill_converter"] = module
-    spec.loader.exec_module(module)
-    return module
-
 # 默认输出目录（与 Reversa 默认一致）
 _DEFAULT_OUTPUT_FOLDER = "_reversa_sdd"
-# 导出规则的目标目录（项目内）：SKILL 转换与产物导出分目录隔离，避免混放/覆盖
+# 导出规则的目标目录（项目内）
 _EXPORT_RULES_DIR = os.path.join(".jarvis", "rules", "reversa", "artifacts")
-_SKILL_RULES_DIR = os.path.join(".jarvis", "rules", "reversa", "skills")
+# 项目依赖配置（各仓库目录下，B 依赖 A 就写 B 的 deps.json 含 A 的绝对路径）
+_DEPS_FILE = os.path.join(".jarvis", "reversa", "deps.json")
 # 置信度标记
 _CONFIDENCE_CONFIRMED = "🟢CONFIRMED"
 _CONFIDENCE_INFERRED = "🟡INFERRED"
@@ -329,44 +316,83 @@ def get_skills(project_dir: Optional[str] = None) -> Dict[str, Any]:
     return {"success": True, "data": {"skills": skills}}
 
 
-def convert_skills(
-    project_dir: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    source: str = "reversa",
-) -> Dict[str, Any]:
-    """把项目已安装的 Reversa skills（.agents/skills/）转换为 Jarvis rule。
+# ---------------------------------------------------------------------------
+# 项目依赖配置（多仓库依赖图数据源）
+# ---------------------------------------------------------------------------
+def _deps_file_path(project_dir: str) -> str:
+    """返回项目依赖配置文件路径（<project>/.jarvis/reversa/deps.json）。"""
+    return os.path.join(project_dir, _DEPS_FILE)
 
-    ⚠️ 已废弃（deprecated）：Jarvis 已默认扫描项目 .agents/skills 与 .claude/skills
-    目录作为规则来源（rules_manager._get_project_rule_dirs），SKILL.md 可直接被
-    Jarvis 加载，无需再转换为 .jarvis/rules/reversa/skills/。本函数保留仅为向后
-    兼容，返回 deprecated: True 提示，不推荐新用户使用。
 
-    决策 6：front matter 翻译中文、正文保留原文；未知字段容错。
-    默认写入 <project_dir>/.jarvis/rules/reversa/skills/（与产物导出 artifacts/ 分目录隔离）。
+def get_dependencies(project_dir: Optional[str] = None) -> Dict[str, Any]:
+    """读取项目依赖配置（.jarvis/reversa/deps.json）。
 
-    返回 {"success": True, "data": {converted: [...], failed: [...], total, rule_dir, deprecated}}。
+    返回 {"success": True, "data": {dependencies: [{path, name?, note?}]}}。
+    文件不存在/损坏时返回空依赖列表（不报错，便于首次使用）。
     """
     project_dir, err = _resolve_project(project_dir)
     if err:
         return {"success": False, "error": err}
-    converter = _load_converter()
-    if output_dir is None:
-        output_dir = os.path.join(project_dir, _SKILL_RULES_DIR)
-    result = converter.convert_installed_skills(project_dir, output_dir=output_dir, source=source)
-    return {
-        "success": True,
-        "data": {
-            "converted": result["converted"],
-            "failed": result["failed"],
-            "total": result["total"],
-            "rule_dir": os.path.relpath(output_dir, project_dir).replace(os.sep, "/"),
-            "deprecated": True,
-            "warning": (
-                "convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills 与 .claude/skills "
-                "作为规则来源，SKILL.md 可直接加载，无需转换。"
-            ),
-        },
-    }
+    deps_path = _deps_file_path(project_dir)
+    dependencies: List[Dict[str, Any]] = []
+    if os.path.isfile(deps_path):
+        try:
+            with open(deps_path, "r", encoding="utf-8") as f:
+                parsed = json.load(f)
+            raw = parsed.get("dependencies") if isinstance(parsed, dict) else None
+            if isinstance(raw, list):
+                dependencies = [
+                    d
+                    for d in raw
+                    if isinstance(d, dict) and str(d.get("path") or "").strip()
+                ]
+        except Exception:  # noqa: BLE001
+            # 损坏的 deps.json 视为空配置，不阻断使用
+            dependencies = []
+    return {"success": True, "data": {"dependencies": dependencies}}
+
+
+def set_dependencies(
+    project_dir: Optional[str] = None,
+    dependencies: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """写入项目依赖配置（.jarvis/reversa/deps.json）。
+
+    每个依赖项必须含 path（上游仓库绝对路径，需为已存在目录）；
+    name/note 可选。原子写（先写临时文件再 rename），避免写坏配置。
+    返回 {"success": True, "data": {dependencies: [...]}}。
+    """
+    project_dir, err = _resolve_project(project_dir)
+    if err:
+        return {"success": False, "error": err}
+    deps = dependencies or []
+    if not isinstance(deps, list):
+        return {"success": False, "error": "dependencies 必须是数组"}
+    cleaned: List[Dict[str, Any]] = []
+    for item in deps:
+        if not isinstance(item, dict):
+            return {"success": False, "error": "依赖项必须是对象 {path, name?, note?}"}
+        path = str(item.get("path") or "").strip()
+        if not path:
+            return {"success": False, "error": "依赖项缺少 path（上游仓库绝对路径）"}
+        if not os.path.isdir(path):
+            return {"success": False, "error": f"依赖路径不存在或不是目录: {path}"}
+        entry: Dict[str, Any] = {"path": path}
+        if str(item.get("name") or "").strip():
+            entry["name"] = str(item["name"]).strip()
+        if str(item.get("note") or "").strip():
+            entry["note"] = str(item["note"]).strip()
+        cleaned.append(entry)
+    deps_path = _deps_file_path(project_dir)
+    os.makedirs(os.path.dirname(deps_path), exist_ok=True)
+    tmp_path = deps_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({"dependencies": cleaned}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, deps_path)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": f"写入依赖配置失败: {e}"}
+    return {"success": True, "data": {"dependencies": cleaned}}
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +524,7 @@ PUBLIC_FUNCTIONS: List[str] = [
     "list_artifacts",
     "read_artifact",
     "get_skills",
-    "convert_skills",
     "export_rules",
+    "get_dependencies",
+    "set_dependencies",
 ]

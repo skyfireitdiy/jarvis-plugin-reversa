@@ -22,7 +22,6 @@ reversa-plugin/
 ├── plugin/
 │   └── api.py           # 插件私有功能（gateway 运行，前端代理调用）
 ├── tools/               # Agent 工具（薄封装，调用 plugin/api.py）
-├── rules/               # （已废弃）转换后的 Reversa skills（SKILL.md → Jarvis rule）
 ├── frontend/
 │   ├── sidebar_view.js  # 侧边栏视图（window.Vue 单文件自包含）
 │   └── icon.svg         # 插件图标
@@ -41,10 +40,8 @@ reversa-plugin/
 4. **install**：绕过交互式 CLI，直连 Reversa installer 库（`lib/installer/`）
    用代码构造 answers。
 5. **引擎**：跳过外部引擎检测，由 Jarvis 模型直接执行。
-6. **SKILL.md**：葡语 → front matter 翻译中文，正文保留原文。
-   ⚠️ **已废弃**：Jarvis 已默认扫描项目 `.agents/skills` 与 `.claude/skills`
-   作为规则来源，SKILL.md 可直接被 Jarvis 加载，无需再转换为
-   `.jarvis/rules/reversa/skills/`。`convert_skills` 保留仅为向后兼容。
+6. **SKILL.md**：Jarvis 已默认扫描项目 `.agents/skills` 与 `.claude/skills`
+   作为规则来源，SKILL.md 可直接被 Jarvis 加载，无需转换。
 7. **产物**：每文件一 rule + 覆盖式更新 + metadata 溯源。
 8. **置信度**：默认只导出 🟢CONFIRMED / 🟡INFERRED，🔴GAP 不导出。
 9. **前端**：3-5s 轮询 state.json + 断线重连 + 刷新恢复。
@@ -73,11 +70,11 @@ jarvis plugin install https://github.com/skyfireitdiy/jarvis-plugin-reversa
 ## 开发
 
 ```bash
-# 单元测试（skill_converter + api.py 核心逻辑）
+# 单元测试（api.py 核心逻辑）
 python3 -m pytest test/ -v
 
 # 后端语法检查
-python3 -m py_compile plugin/api.py plugin/skill_converter.py tools/*.py
+python3 -m py_compile plugin/api.py tools/*.py
 
 # 前端语法检查与模板编译验证
 node --check frontend/sidebar_view.js

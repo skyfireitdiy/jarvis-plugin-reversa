@@ -9,7 +9,6 @@ Jarvis rule、导出规格产物为 rule、卸载工作区。
 - install: 安装 Reversa 工作区到项目目录（绕过交互式 CLI 直连 installer 库）
 - status: 读取 .reversa/state.json 返回分析进度（phase/checkpoints）
 - skills: 列出已安装的 Reversa skills（.agents/skills/<agent>/SKILL.md）
-- convert_skills: 把已安装的 SKILL.md 转换为 Jarvis rule（front matter 翻译中文）
 - artifacts: 列出 _reversa_sdd/ 产物文件树
 - read_artifact: 读取单个产物文件内容
 - export_rules: 把产物按置信度导出为 Jarvis rule（默认只导出 CONFIRMED/INFERRED）
@@ -38,7 +37,6 @@ _KNOWN_ACTIONS = {
     "install",
     "status",
     "skills",
-    "convert_skills",
     "artifacts",
     "read_artifact",
     "export_rules",
@@ -76,7 +74,6 @@ class ReversaTool:
         "可安装 Reversa 工作区（install）、查看分析进度（status）、列出已安装的 "
         "Reversa skills（skills）、浏览规格产物（artifacts/"
         "read_artifact）、把产物按置信度导出为 rule（export_rules）、卸载工作区（uninstall）。"
-        "（convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载，无需转换。）"
         "适合用户要求「逆向分析某项目」「生成项目规格」「把 Reversa 产物转成 rule」等场景。"
         "注意：本工具只做生命周期管理与产物转换，不直接执行 5 阶段分析——分析由 Jarvis "
         "Agent 依据转换后的 rules 编排执行。"
@@ -90,7 +87,6 @@ class ReversaTool:
                     "install",
                     "status",
                     "skills",
-                    "convert_skills",
                     "artifacts",
                     "read_artifact",
                     "export_rules",
@@ -161,8 +157,6 @@ class ReversaTool:
                 result = api.get_status(project_dir=project_dir)
             elif action == "skills":
                 result = api.get_skills(project_dir=project_dir)
-            elif action == "convert_skills":
-                result = api.convert_skills(project_dir=project_dir)
             elif action == "artifacts":
                 result = api.list_artifacts(project_dir=project_dir)
             elif action == "read_artifact":
