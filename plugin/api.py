@@ -336,10 +336,15 @@ def convert_skills(
 ) -> Dict[str, Any]:
     """把项目已安装的 Reversa skills（.agents/skills/）转换为 Jarvis rule。
 
+    ⚠️ 已废弃（deprecated）：Jarvis 已默认扫描项目 .agents/skills 与 .claude/skills
+    目录作为规则来源（rules_manager._get_project_rule_dirs），SKILL.md 可直接被
+    Jarvis 加载，无需再转换为 .jarvis/rules/reversa/skills/。本函数保留仅为向后
+    兼容，返回 deprecated: True 提示，不推荐新用户使用。
+
     决策 6：front matter 翻译中文、正文保留原文；未知字段容错。
     默认写入 <project_dir>/.jarvis/rules/reversa/skills/（与产物导出 artifacts/ 分目录隔离）。
 
-    返回 {"success": True, "data": {converted: [...], failed: [...], total, rule_dir}}。
+    返回 {"success": True, "data": {converted: [...], failed: [...], total, rule_dir, deprecated}}。
     """
     project_dir, err = _resolve_project(project_dir)
     if err:
@@ -355,6 +360,11 @@ def convert_skills(
             "failed": result["failed"],
             "total": result["total"],
             "rule_dir": os.path.relpath(output_dir, project_dir).replace(os.sep, "/"),
+            "deprecated": True,
+            "warning": (
+                "convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills 与 .claude/skills "
+                "作为规则来源，SKILL.md 可直接加载，无需转换。"
+            ),
         },
     }
 
