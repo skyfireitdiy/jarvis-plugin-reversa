@@ -1,5 +1,19 @@
 # Jarvis Reversa 插件
 
+> ## ⚠️ 已废弃（Deprecated）
+>
+> 本插件已废弃，功能已并入 **[ai-dark-factory](https://github.com/skyfireitdiy/jarvis-plugin-ai-dark-factory) 插件**（黑灯工厂）。
+>
+> **迁移说明**：安装 `ai-dark-factory` 插件即可获得全部 Reversa 功能，并额外获得
+> 「逆向分析 → 正向开发 → 知识回流」完整闭环：
+> - 规格逆向工程（Reversa 5 阶段，生成 `_reversa_sdd/` 结构化规格）
+> - 融合编排流水线 `dark-factory-pipeline-reversa`（逆向 → 黑灯工厂六阶段 → sync）
+> - Rule 知识库导出（按置信度过滤）
+> - 知识回流 sync（基线记录 + git diff 差异分析 + traceability 矩阵映射）
+> - 侧边栏视图（生命周期管理、产物浏览、依赖图、手动触发知识回流）
+>
+> 本仓库仅作历史存档，不再维护。请勿在新项目中使用。
+
 [Reversa](https://github.com/sandeco/reversa) 逆向工程框架的 Jarvis 包装器。
 复用 Jarvis 模型对遗留项目执行规格逆向工程，生成结构化 Markdown 规格
 （`_reversa_sdd/`），并导出为 Jarvis rule 知识库供后续任务复用。
