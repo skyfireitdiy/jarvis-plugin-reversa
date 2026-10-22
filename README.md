@@ -59,6 +59,16 @@ jarvis plugin install /home/skyfire/code/reversa-plugin
 # 或从 git 仓库安装
 jarvis plugin install https://github.com/skyfireitdiy/jarvis-plugin-reversa
 ```
+## 使用
+1. 打开侧边栏视图 `plugin:reversa`，添加项目目录（需为已存在目录）。
+2. 点击「安装 Reversa」安装工作区（绕过交互式 CLI 直连 installer 库）。
+3. **在项目目录 chip 上右键**，选择：
+   - **创建 Agent 执行规格逆向分析**：弹出创建 Agent 弹窗（预填任务描述），
+     确认后由新 Agent 依据 `.agents/skills` 的 Reversa skills 编排执行 5 阶段分析；
+   - **在当前 Agent 中执行**：把逆向分析提示词直接发送给当前活跃 Agent。
+4. 侧边栏 3-5s 轮询 `state.json` 展示 5 阶段进度（侦察→挖掘→解读→生成→评审）。
+5. 浏览 `_reversa_sdd/` 产物，点「导出 Rules」按置信度导出为 Jarvis rule 复用。
+6. （可选）「卸载」移除工作区，`_reversa_sdd/` 产物保留。
 
 ## 开发
 
