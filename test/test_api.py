@@ -38,7 +38,7 @@ def _make_project(tmp_path):
 
 
 def test_public_functions_whitelist():
-    """PUBLIC_FUNCTIONS 白名单包含全部 8 个功能且均可调用。"""
+    """PUBLIC_FUNCTIONS 白名单包含全部功能且均可调用。"""
     expected = {
         "install_project",
         "get_status",
@@ -46,8 +46,9 @@ def test_public_functions_whitelist():
         "list_artifacts",
         "read_artifact",
         "get_skills",
-        "convert_skills",
         "export_rules",
+        "get_dependencies",
+        "set_dependencies",
     }
     assert set(api.PUBLIC_FUNCTIONS) == expected
     for fn in api.PUBLIC_FUNCTIONS:
@@ -137,15 +138,48 @@ def test_get_skills(tmp_path):
     assert r["data"]["skills"][0]["exists"] is True
 
 
-def test_convert_skills(tmp_path):
-    """convert_skills 已废弃但仍可用：转换 SKILL.md 并返回 deprecated 标记。"""
+def test_get_dependencies_empty(tmp_path):
+    """未配置依赖时 get_dependencies 返回空列表（不报错）。"""
     proj = _make_project(tmp_path)
-    r = api.convert_skills(proj)
+    r = api.get_dependencies(proj)
     assert r["success"] is True
-    assert r["data"]["total"] == 1
-    assert r["data"]["failed"] == []
-    # 已废弃标记：Jarvis 已默认扫描 .agents/skills，无需转换
-    assert r["data"]["deprecated"] is True
-    assert "已废弃" in r["data"]["warning"]
-    rule_file = os.path.join(proj, ".jarvis", "rules", "reversa", "skills", "reversa.md")
-    assert os.path.isfile(rule_file)
+    assert r["data"]["dependencies"] == []
+
+
+def test_set_get_dependencies_roundtrip(tmp_path):
+    """set_dependencies 写入后 get_dependencies 往返一致。"""
+    proj = _make_project(tmp_path)
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    deps = [
+        {"path": str(upstream), "name": "上游库", "note": "提供 API 定义"},
+    ]
+    r = api.set_dependencies(proj, deps)
+    assert r["success"] is True
+    assert r["data"]["dependencies"] == [
+        {"path": str(upstream), "name": "上游库", "note": "提供 API 定义"}
+    ]
+    # 写入位置：<project>/.jarvis/reversa/deps.json
+    deps_file = os.path.join(proj, ".jarvis", "reversa", "deps.json")
+    assert os.path.isfile(deps_file)
+    r2 = api.get_dependencies(proj)
+    assert r2["success"] is True
+    assert r2["data"]["dependencies"] == [
+        {"path": str(upstream), "name": "上游库", "note": "提供 API 定义"}
+    ]
+
+
+def test_set_dependencies_validates_path(tmp_path):
+    """set_dependencies 校验依赖路径必须为已存在目录。"""
+    proj = _make_project(tmp_path)
+    r = api.set_dependencies(proj, [{"path": "/nonexistent/upstream"}])
+    assert r["success"] is False
+    assert "不存在" in r["error"]
+
+    r2 = api.set_dependencies(proj, [{"path": ""}])
+    assert r2["success"] is False
+    assert "path" in r2["error"]
+
+    r3 = api.set_dependencies(proj, "not-a-list")
+    assert r3["success"] is False
+    assert "数组" in r3["error"]

@@ -126,6 +126,13 @@ async function callFunction(functionName, args, nodeId) {
   return payload;
 }
 
+// 取路径的最后一段作为显示名（兼容 / 与 \）
+function baseName(p) {
+  const s = String(p || "").replace(/[\\/]+$/, "");
+  const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+  return i >= 0 ? s.slice(i + 1) : s;
+}
+
 export default {
   name: "ReversaSidebarView",
   props: {
@@ -154,8 +161,12 @@ export default {
       artifactLoading: false,
       // 导出
       exportBusy: false,
-      convertBusy: false,
       includeGap: false,
+      // 依赖图
+      depsGraph: null, // {nodes: [{id,label,path}], edges: [{from,to}]}，from 依赖 to（箭头指向被依赖方）
+      depsLoading: false,
+      depInput: "",
+      depBusy: false,
       // 项目目录右键菜单
       menuVisible: false,
       menuStyle: {},
@@ -197,6 +208,49 @@ export default {
         else if (cur === p) state = "current";
         return { key: p, label: PHASE_LABELS[p] || p, state };
       });
+    },
+    // 依赖图节点坐标（网格布局）：nodes 带 x/y，edges 带 from/to 坐标
+    depsLayout() {
+      const g = this.depsGraph;
+      if (!g || !g.nodes.length) return null;
+      const NODE_W = 150;
+      const NODE_H = 34;
+      const GAP_X = 40;
+      const GAP_Y = 30;
+      const cols = Math.max(1, Math.ceil(Math.sqrt(g.nodes.length)));
+      const nodes = g.nodes.map((n, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        return {
+          ...n,
+          x: col * (NODE_W + GAP_X),
+          y: row * (NODE_H + GAP_Y),
+          w: NODE_W,
+          h: NODE_H,
+        };
+      });
+      const byPath = {};
+      nodes.forEach((n) => {
+        byPath[n.path] = n;
+      });
+      const edges = g.edges.map((e) => {
+        const from = byPath[e.from];
+        const to = byPath[e.to];
+        if (!from || !to) return null;
+        // 箭头从依赖方 from 指向被依赖方 to（指向被依赖的上游）
+        return {
+          from,
+          to,
+          x1: from.x + from.w,
+          y1: from.y + from.h / 2,
+          x2: to.x,
+          y2: to.y + to.h / 2,
+        };
+      }).filter(Boolean);
+      const width = cols * (NODE_W + GAP_X) - GAP_X + 20;
+      const rows = Math.ceil(g.nodes.length / cols);
+      const height = rows * (NODE_H + GAP_Y) - GAP_Y + 20;
+      return { nodes, edges, width, height };
     },
   },
   mounted() {
@@ -343,8 +397,10 @@ export default {
     // 生成对指定项目执行 Reversa 规格逆向分析的任务描述。
     // 由 Jarvis Agent 依据 .agents/skills 的 Reversa skills（SKILL.md）编排执行 5 阶段，
     // 通过 reversa 工具做生命周期管理与产物导出。
-    buildAnalysisPrompt(dir) {
-      return [
+    // 若项目配置了上游依赖（deps.json），注入上游路径与 read_artifact 指引，
+    // 让 Agent 反构时可参考上游已生成的 _reversa_sdd/ 规格产物。
+    async buildAnalysisPrompt(dir) {
+      const lines = [
         `请对项目目录 ${dir} 执行 Reversa 规格逆向分析。`,
         "",
         "遵循 Reversa 逆向工程规则（.agents/skills 下的 SKILL.md，可 load_rule 加载）执行 5 阶段分析：",
@@ -359,7 +415,30 @@ export default {
         "- 用 reversa 工具（action=status）查看分析进度，action=artifacts/read_artifact 浏览产物。",
         "- 分析完成后用 reversa 工具（action=export_rules）把产物按置信度导出为 Jarvis rule 知识库。",
         "- 分析过程与结论请分阶段汇报，最终给出规格产物清单与置信度汇总。",
-      ].join("\n");
+      ];
+      // 注入上游依赖参考（决策：Agent 读结构化 deps.json，不依赖图）
+      try {
+        const payload = await callFunction("get_dependencies", { project_dir: dir }, this.nodeId);
+        const deps = (payload.data && payload.data.dependencies) || [];
+        if (deps.length) {
+          lines.push(
+            "",
+            "上游依赖参考：",
+            "该项目依赖以下上游仓库，分析接口/领域/架构时可参考上游已生成的 _reversa_sdd/ 规格产物：",
+          );
+          deps.forEach((d) => {
+            const name = d.name ? `（${d.name}）` : "";
+            lines.push(`- 上游：${d.path}${name}`);
+          });
+          lines.push(
+            "读取方式：用 reversa 工具 action=read_artifact, project_dir=<上游路径>, path=<产物相对路径>（如 architecture.md / sdd/domain.md）读取上游规格，作为接口/领域/架构定义的权威参考。",
+            "若上游尚未生成产物，则基于源码自行推断并在结论中标注。",
+          );
+        }
+      } catch (e) {
+        // 读取依赖失败不阻断任务描述生成
+      }
+      return lines.join("\n");
     },
     // 在当前活跃 Agent 中执行该项目的规格逆向分析
     async handleInCurrentAgent(dir) {
@@ -371,7 +450,8 @@ export default {
         this.message = "宿主未提供发送通道，无法在当前 Agent 中执行";
         return;
       }
-      const res = send(this.buildAnalysisPrompt(dir));
+      const prompt = await this.buildAnalysisPrompt(dir);
+      const res = send(prompt);
       if (res && res.success) {
         this.message = `已把 ${dir} 的逆向分析提示词发送给当前 Agent`;
       } else {
@@ -395,7 +475,7 @@ export default {
       try {
         const prefill = {
           workingDir: dir,
-          task: this.buildAnalysisPrompt(dir),
+          task: await this.buildAnalysisPrompt(dir),
           name: `Reversa 逆向分析`,
           nodeId: this.nodeId,
         };
@@ -432,6 +512,7 @@ export default {
           this.status = null;
           this.artifacts = [];
         }
+        await this.loadDepsGraph();
       } catch (e) {
         this.error = e.message || "刷新失败";
         this.status = null;
@@ -568,12 +649,107 @@ export default {
         this.exportBusy = false;
       }
     },
-    async doConvertSkills() {
-      // convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载。
-      // 保留按钮仅为向后兼容，点击时提示用户无需转换。
+    // ---- 依赖图 ----
+    // 聚合当前节点下所有项目目录的 deps.json，构建依赖图。
+    // 节点=仓库目录；边 from→to 表示 from 依赖 to（箭头指向被依赖的上游）。
+    async loadDepsGraph() {
+      this.depsLoading = true;
       this.error = "";
-      this.message = "convert_skills 已废弃：Jarvis 已默认扫描 .agents/skills 与 .claude/skills，SKILL.md 可直接加载，无需转换。";
-      return;
+      try {
+        const paths = this.dirs.length ? this.dirs : (this.projectDir ? [this.projectDir] : []);
+        const depsByPath = {};
+        for (const p of paths) {
+          try {
+            const payload = await callFunction("get_dependencies", { project_dir: p }, this.nodeId);
+            depsByPath[p] = (payload.data && payload.data.dependencies) || [];
+          } catch (e) {
+            depsByPath[p] = [];
+          }
+        }
+        // 收集所有节点（项目目录 + 依赖的上游路径）
+        const nodePaths = new Set(paths);
+        Object.values(depsByPath).forEach((deps) => {
+          deps.forEach((d) => {
+            if (d && d.path) nodePaths.add(d.path);
+          });
+        });
+        const nodes = Array.from(nodePaths).map((p) => ({
+          path: p,
+          label: baseName(p),
+        }));
+        // 边：from=依赖方，to=被依赖方（箭头指向被依赖的上游）
+        const edges = [];
+        Object.keys(depsByPath).forEach((from) => {
+          depsByPath[from].forEach((d) => {
+            if (d && d.path && d.path !== from) {
+              edges.push({ from, to: d.path });
+            }
+          });
+        });
+        this.depsGraph = { nodes, edges };
+      } catch (e) {
+        this.error = e.message || "加载依赖图失败";
+      } finally {
+        this.depsLoading = false;
+      }
+    },
+    // 为当前激活项目添加一个上游依赖
+    async addDependency() {
+      const dep = (this.depInput || "").trim();
+      if (!this.projectDir) {
+        this.error = "请先选择项目目录";
+        return;
+      }
+      if (!dep) {
+        this.error = "请输入上游依赖路径";
+        return;
+      }
+      this.depBusy = true;
+      this.error = "";
+      this.message = "";
+      try {
+        const payload = await callFunction("get_dependencies", { project_dir: this.projectDir }, this.nodeId);
+        const deps = (payload.data && payload.data.dependencies) || [];
+        if (deps.some((d) => d.path === dep)) {
+          this.message = "该依赖已存在";
+          this.depInput = "";
+          return;
+        }
+        deps.push({ path: dep });
+        await callFunction("set_dependencies", { project_dir: this.projectDir, dependencies: deps }, this.nodeId);
+        this.message = `已添加依赖：${dep}`;
+        this.depInput = "";
+        await this.loadDepsGraph();
+      } catch (e) {
+        this.error = e.message || "添加依赖失败";
+      } finally {
+        this.depBusy = false;
+      }
+    },
+    // 删除当前激活项目的一个上游依赖
+    async removeDependency(depPath) {
+      if (!this.projectDir) return;
+      this.depBusy = true;
+      this.error = "";
+      this.message = "";
+      try {
+        const payload = await callFunction("get_dependencies", { project_dir: this.projectDir }, this.nodeId);
+        const deps = ((payload.data && payload.data.dependencies) || []).filter((d) => d.path !== depPath);
+        await callFunction("set_dependencies", { project_dir: this.projectDir, dependencies: deps }, this.nodeId);
+        this.message = `已移除依赖：${depPath}`;
+        await this.loadDepsGraph();
+      } catch (e) {
+        this.error = e.message || "移除依赖失败";
+      } finally {
+        this.depBusy = false;
+      }
+    },
+    // 当前激活项目已配置的依赖（供列表展示/删除）
+    activeDeps() {
+      if (!this.depsGraph || !this.projectDir) return [];
+      const node = this.depsGraph.nodes.find((n) => n.path === this.projectDir);
+      if (!node) return [];
+      return this.depsGraph.edges.filter((e) => e.from === this.projectDir).map((e) => e.to);
     },
   },
   template: `
@@ -646,10 +822,6 @@ export default {
           style="padding:5px 12px;background:#da3633;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">
           {{ busy ? '卸载中…' : '卸载' }}
         </button>
-        <button @click="doConvertSkills" :disabled="convertBusy || !installed" title="已废弃：Jarvis 已默认扫描 .agents/skills，SKILL.md 可直接加载"
-          style="padding:5px 12px;background:#8957e5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;opacity:.6;">
-          {{ convertBusy ? '转换中…' : 'SKILL→Rule（已废弃）' }}
-        </button>
         <button @click="doExportRules" :disabled="exportBusy || !installed"
           style="padding:5px 12px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">
           {{ exportBusy ? '导出中…' : '导出 Rules' }}
@@ -663,6 +835,61 @@ export default {
     <!-- 消息/错误 -->
     <div v-if="message" style="padding:4px 10px;background:#1f3d2b;color:#3fb950;font-size:11px;flex-shrink:0;">{{ message }}</div>
     <div v-if="error" style="padding:4px 10px;background:#3d1f1f;color:#f85149;font-size:11px;flex-shrink:0;">{{ error }}</div>
+
+    <!-- 依赖图 -->
+    <div v-if="projectDir" style="border-bottom:1px solid #333;flex-shrink:0;">
+      <div style="padding:6px 10px;font-size:11px;color:#888;display:flex;align-items:center;gap:6px;">
+        <span>依赖图（箭头指向被依赖的上游）</span>
+        <span style="flex:1;"></span>
+        <button @click="loadDepsGraph" :disabled="depsLoading" title="刷新依赖图"
+          style="padding:2px 8px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;cursor:pointer;font-size:11px;">
+          {{ depsLoading ? '加载中…' : '刷新' }}
+        </button>
+      </div>
+      <div v-if="depsLayout" style="overflow:auto;padding:4px 10px 8px;">
+        <svg :width="depsLayout.width" :height="depsLayout.height" style="display:block;">
+          <!-- 边（箭头指向被依赖方） -->
+          <line v-for="e in depsLayout.edges" :key="e.from + '->' + e.to"
+            :x1="e.x1" :y1="e.y1" :x2="e.x2" :y2="e.y2"
+            stroke="#7d8590" stroke-width="1.5" marker-end="url(#reversaArrow)"/>
+          <!-- 节点 -->
+          <g v-for="n in depsLayout.nodes" :key="n.path">
+            <rect :x="n.x" :y="n.y" :width="n.w" :height="n.h" rx="6"
+              :fill="n.path === projectDir ? '#1f6feb' : '#2d2d2d'" stroke="#444" stroke-width="1"/>
+            <text :x="n.x + n.w / 2" :y="n.y + n.h / 2" text-anchor="middle" dominant-baseline="central"
+              :fill="n.path === projectDir ? '#fff' : '#ccc'" font-size="11" style="pointer-events:none;">{{ n.label }}</text>
+            <title>{{ n.path }}</title>
+          </g>
+        </svg>
+        <svg width="0" height="0" style="position:absolute;">
+          <defs>
+            <marker id="reversaArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#7d8590"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+      <div v-else style="padding:4px 10px 8px;color:#666;font-size:11px;">
+        {{ depsLoading ? '加载依赖图…' : '暂无依赖（在下方为当前项目添加上游依赖）' }}
+      </div>
+      <!-- 当前项目依赖配置 -->
+      <div style="padding:0 10px 8px;">
+        <div style="display:flex;gap:4px;margin-bottom:4px;">
+          <input v-model="depInput" placeholder="上游依赖目录（如 /path/to/upstream）"
+            @keydown.enter.prevent="addDependency"
+            style="flex:1;min-width:0;padding:3px 6px;background:#1e1e1e;color:#ddd;border:1px solid #444;border-radius:4px;font-size:11px;">
+          <button @click="addDependency" :disabled="depBusy"
+            style="padding:3px 10px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;">添加依赖</button>
+        </div>
+        <div v-if="activeDeps().length" style="display:flex;flex-wrap:wrap;gap:4px;">
+          <span v-for="dep in activeDeps()" :key="dep" :title="dep"
+            style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:10px;background:#2d2d2d;color:#aaa;font-size:11px;max-width:180px;overflow:hidden;textOverflow:ellipsis;whiteSpace:nowrap;">
+            {{ baseName(dep) }}
+            <span @click="removeDependency(dep)" style="cursor:pointer;opacity:.7;" title="移除依赖">×</span>
+          </span>
+        </div>
+      </div>
+    </div>
 
     <!-- 产物浏览 -->
     <div v-if="projectDir" style="flex:1;display:flex;flex-direction:column;min-height:0;">
