@@ -156,6 +156,10 @@ export default {
       exportBusy: false,
       convertBusy: false,
       includeGap: false,
+      // 项目目录右键菜单
+      menuVisible: false,
+      menuStyle: {},
+      menuDir: "",
       // 帮助弹层
       helpVisible: false,
     };
@@ -209,11 +213,20 @@ export default {
     this._pollTimer = setInterval(() => {
       this.pollStatus();
     }, POLL_INTERVAL);
+    // 点击别处 / 按 Esc 关闭右键菜单
+    this._onDocClick = () => this.closeDirMenu();
+    this._onDocKeydown = (e) => {
+      if (e.key === "Escape") this.closeDirMenu();
+    };
+    document.addEventListener("click", this._onDocClick);
+    document.addEventListener("keydown", this._onDocKeydown);
     this.refresh();
   },
   beforeUnmount() {
     if (typeof this._offAgentChanged === "function") this._offAgentChanged();
     if (this._pollTimer) clearInterval(this._pollTimer);
+    document.removeEventListener("click", this._onDocClick);
+    document.removeEventListener("keydown", this._onDocKeydown);
   },
   watch: {
     workingDir() {
@@ -302,6 +315,110 @@ export default {
       }
       this.persistDirs();
       this.refresh();
+    },
+    // ---- 项目目录右键菜单 ----
+    // 在项目目录 chip 上右键：弹出「创建 Agent 执行规格逆向分析 / 在当前 Agent 中执行」菜单。
+    openDirMenu(dir, event) {
+      this.menuDir = dir;
+      const menuWidth = 220;
+      const menuHeight = 76;
+      let left = event.clientX;
+      let top = event.clientY;
+      // 不超出视口右下缘
+      if (left + menuWidth > window.innerWidth - 8) {
+        left = window.innerWidth - menuWidth - 8;
+      }
+      if (left < 8) left = 8;
+      if (top + menuHeight > window.innerHeight - 8) {
+        top = window.innerHeight - menuHeight - 8;
+      }
+      if (top < 8) top = 8;
+      this.menuStyle = { left: left + "px", top: top + "px" };
+      this.menuVisible = true;
+    },
+    closeDirMenu() {
+      this.menuVisible = false;
+      this.menuDir = "";
+    },
+    // 生成对指定项目执行 Reversa 规格逆向分析的任务描述。
+    // 由 Jarvis Agent 依据 .agents/skills 的 Reversa skills（SKILL.md）编排执行 5 阶段，
+    // 通过 reversa 工具做生命周期管理与产物导出。
+    buildAnalysisPrompt(dir) {
+      return [
+        `请对项目目录 ${dir} 执行 Reversa 规格逆向分析。`,
+        "",
+        "遵循 Reversa 逆向工程规则（.agents/skills 下的 SKILL.md，可 load_rule 加载）执行 5 阶段分析：",
+        "1. 侦察（reconhecimento/Scout）：识别项目技术栈、模块划分与关键入口。",
+        "2. 挖掘（escavacao/Archaeologist）：深入源码提取领域概念、实体与关系。",
+        "3. 解读（interpretacao/Detective）：交叉验证推断，标注置信度（🟢CONFIRMED/🟡INFERRED/🔴GAP）。",
+        "4. 生成（geracao/Architect）：产出结构化规格文档到 _reversa_sdd/（inventory/domain/architecture/sdd）。",
+        "5. 评审（revisao/Writer）：复核规格完整性，补齐缺口。",
+        "",
+        "执行要求：",
+        "- 若项目尚未安装 Reversa 工作区，先用 reversa 工具（action=install, project_dir=该目录）安装。",
+        "- 用 reversa 工具（action=status）查看分析进度，action=artifacts/read_artifact 浏览产物。",
+        "- 分析完成后用 reversa 工具（action=export_rules）把产物按置信度导出为 Jarvis rule 知识库。",
+        "- 分析过程与结论请分阶段汇报，最终给出规格产物清单与置信度汇总。",
+      ].join("\n");
+    },
+    // 在当前活跃 Agent 中执行该项目的规格逆向分析
+    async handleInCurrentAgent(dir) {
+      this.closeDirMenu();
+      if (!dir) return;
+      const send =
+        typeof window !== "undefined" && window.__jarvisSendToActiveAgent;
+      if (typeof send !== "function") {
+        this.message = "宿主未提供发送通道，无法在当前 Agent 中执行";
+        return;
+      }
+      const res = send(this.buildAnalysisPrompt(dir));
+      if (res && res.success) {
+        this.message = `已把 ${dir} 的逆向分析提示词发送给当前 Agent`;
+      } else {
+        this.message = "失败: " + ((res && res.error) || "发送失败");
+      }
+    },
+    // 创建新 Agent 执行该项目的规格逆向分析（预填弹窗，用户确认/编辑后创建）
+    async handleNewAgent(dir) {
+      this.closeDirMenu();
+      if (!dir) return;
+      const openModal =
+        typeof window !== "undefined" && window.__jarvisOpenCreateAgentModal;
+      const create =
+        typeof window !== "undefined" && window.__jarvisCreateAgentForTask;
+      if (typeof openModal !== "function" && typeof create !== "function") {
+        this.message = "宿主未提供创建通道，无法创建 Agent";
+        return;
+      }
+      this.busy = true;
+      this.message = `正在创建 Agent 对 ${dir} 执行规格逆向分析…`;
+      try {
+        const prefill = {
+          workingDir: dir,
+          task: this.buildAnalysisPrompt(dir),
+          name: `Reversa 逆向分析`,
+          nodeId: this.nodeId,
+        };
+        if (typeof openModal === "function") {
+          const res = await openModal(prefill);
+          if (res && res.confirmed) {
+            this.message = `已创建 Agent 对 ${dir} 执行规格逆向分析`;
+          } else {
+            this.message = "已取消";
+          }
+        } else {
+          const res = await create(prefill);
+          if (res && res.success) {
+            this.message = `已创建 Agent 对 ${dir} 执行规格逆向分析`;
+          } else {
+            this.message = "失败: " + ((res && res.error) || "创建失败");
+          }
+        }
+      } catch (e) {
+        this.message = "失败: " + String((e && e.message) || e);
+      } finally {
+        this.busy = false;
+      }
     },
     // ---- 状态 ----
     async refresh() {
@@ -484,8 +601,8 @@ export default {
           style="padding:4px 10px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">添加</button>
       </div>
       <div v-if="dirs.length" style="display:flex;flex-wrap:wrap;gap:4px;">
-        <span v-for="d in dirs" :key="d" @click="selectProject(d)"
-          :title="d"
+        <span v-for="d in dirs" :key="d" @click="selectProject(d)" @contextmenu.prevent="openDirMenu(d, $event)"
+          :title="d + '（右键：创建 Agent 执行规格逆向分析）'"
           :style="{display:'inline-flex',alignItems:'center',gap:'3px',padding:'2px 6px',borderRadius:'10px',cursor:'pointer',fontSize:'11px',maxWidth:'180px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',background: d === projectDir ? '#1f6feb' : '#2d2d2d', color: d === projectDir ? '#fff' : '#aaa'}">
           {{ d }}
           <span @click.stop="removeProject(d)" style="color:inherit;opacity:.7;">×</span>
@@ -599,6 +716,16 @@ export default {
           style="background:none;border:none;color:#888;cursor:pointer;font-size:12px;">×</button>
       </div>
       <pre style="flex:1;overflow:auto;margin:0;padding:8px 10px;font-size:11px;color:#ccc;white-space:pre-wrap;word-break:break-word;">{{ artifactContent }}</pre>
+    </div>
+
+    <!-- 项目目录右键菜单 -->
+    <div v-if="menuVisible" :style="menuStyle"
+      style="position:fixed;z-index:9999;background:#2d2d30;border:1px solid #454545;border-radius:6px;box-shadow:0 4px 12px #0008;padding:4px;min-width:200px;">
+      <div style="padding:4px 10px;font-size:11px;color:#888;border-bottom:1px solid #333;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;" :title="menuDir">{{ menuDir }}</div>
+      <div @click="handleNewAgent(menuDir)"
+        style="padding:6px 10px;font-size:12px;color:#ddd;cursor:pointer;border-radius:4px;white-space:nowrap;">创建 Agent 执行规格逆向分析</div>
+      <div @click="handleInCurrentAgent(menuDir)"
+        style="padding:6px 10px;font-size:12px;color:#ddd;cursor:pointer;border-radius:4px;white-space:nowrap;">在当前 Agent 中执行</div>
     </div>
 
     <!-- 帮助弹层 -->
